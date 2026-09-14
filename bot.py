@@ -5,7 +5,9 @@ import requests
 from flask import Flask
 from threading import Thread
 
+# ========================================================
 # 1. SERVIDOR WEB PARA MANTENER EL BOT ACTIVO 24/7
+# ========================================================
 app = Flask('')
 
 @app.route('/')
@@ -20,18 +22,27 @@ def keep_alive():
     t = Thread(target=run_web_server)
     t.start()
 
-# 2. CONFIGURACIÓN DEL BOT DE DISCORD
+
+# ========================================================
+# 2. CONFIGURACIÓN DEL BOT DE DISCORD (CON INTENTS)
+# ========================================================
 TOKEN = os.getenv("DISCORD_TOKEN")
 API_KEY = os.getenv("API_KEY")
 
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+# Activamos el intent de contenido de mensajes obligatoriamente
+intents = discord.Intents.default()
+intents.message_content = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    print(f"🤖 Conectado con éxito como {bot.user}")
+    print(f"Conectado con éxito como {bot.user}")
 
-# --- COMANDOS PARA CADA COMPETICIÓN ---
 
+# ========================================================
+# 3. COMANDOS PARA CADA COMPETICIÓN
+# ========================================================
 @bot.command(name="laliga")
 async def laliga(ctx):
     await obtener_clasificacion(ctx, "140", "LaLiga EA Sports")
@@ -60,43 +71,59 @@ async def copadelrey(ctx):
 async def supercopa(ctx):
     await obtener_clasificacion(ctx, "142", "Supercopa de España")
 
-# --- FUNCIÓN INTERNA PARA LLAMAR A API-FOOTBALL ---
+
+# ========================================================
+# 4. FUNCIÓN INTERNA PARA LLAMAR A API-FOOTBALL
+# ========================================================
+# Se añade 'ctx' como parámetro para poder enviar mensajes en caso de error
 async def obtener_clasificacion(ctx, league_id, league_name):
     url = "https://api-sports.io"
+    
     # Ajustado a la temporada activa en curso
     querystring = {"league": league_id, "season": "2026"}
+    
     headers = {
         "x-rapidapi-key": API_KEY,
         "x-rapidapi-host": "v3.football.api-sports.io"
     }
     
-    response = requests.get(url, headers=headers, params=querystring)
-    
-    if response.status_code == 200:
-        data = response.json()
-        try:
-            standings_list = data["response"]["league"]["standings"]
+    try:
+        response = requests.get(url, headers=headers, params=querystring)
+        
+        if response.status_code == 200:
+            data = response.json()
             
-            # Algunas copas/torneos cortos devuelven listas anidadas diferentes, validamos la estructura
-    if isinstance(standings_list[0], list):
-        teams = standings_list[0]
-    else:
-        teams = standings_list
-
-
-
+            try:
+                standings_list = data["response"][0]["league"]["standings"]
                 
-            tabla = f"🏆 **Clasificación / Fase actual de {league_name}:**\n"
-            for team_data in teams[:5]: # Muestra los 5 primeros
-                pos = team_data["rank"]
-                name = team_data["team"]["name"]
-                points = team_data["points"]
-                tabla += f"{pos}. {name} - {points} pts\n"
-            await ctx.send(tabla)
-        except (KeyError, IndexError, TypeError):
-            await ctx.send(f"❌ No se encontraron datos para {league_name}. Asegúrate de que tu cuenta de API-Sports tenga acceso a esta liga.")
-    else:
-        await ctx.send("❌ Error al conectar con los servidores de fútbol.")
+                # Algunas copas/torneos cortos devuelven listas anidadas diferentes
+                if isinstance(standings_list[0], list):
+                    teams = standings_list[0]
+                else:
+                    teams = standings_list
+                
+                tabla = f"🏆 **Clasificación / Fase actual de {league_name}:**\n\n"
+                
+                # Muestra los primeros 5 equipos como tenías configurado
+                for team_data in teams[:5]:
+                    pos = team_data["rank"]
+                    name = team_data["team"]["name"]
+                    points = team_data["points"]
+                    tabla += f"**{pos}.** {name} — `{points} pts`\n"
+                    
+                await ctx.send(tabla)
+                
+            except (KeyError, IndexError, TypeError):
+                await ctx.send(f"❌ No se encontraron datos para {league_name}. Asegúrate de que tu cuenta de API-Sports tenga acceso.")
+        else:
+            await ctx.send("❌ Error al conectar con los servidores de fútbol.")
+            
+    except Exception as e:
+        await ctx.send(f"❌ Ocurrió un error inesperado al procesar el comando.")
 
+
+# ========================================================
+# 5. ENCENDIDO DEL BOT
+# ========================================================
 keep_alive()
 bot.run(TOKEN)
