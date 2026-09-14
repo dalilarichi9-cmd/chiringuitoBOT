@@ -1,7 +1,7 @@
 import os
 import discord
 from discord.ext import commands
-import requests
+import aiohttp
 from flask import Flask
 from threading import Thread
 
@@ -73,14 +73,12 @@ async def supercopa(ctx):
 
 
 # ========================================================
-# 4. FUNCIÓN INTERNA PARA LLAMAR A API-FOOTBALL
+# 4. FUNCIÓN INTERNA ASÍNCRONA PARA LLAMAR A API-FOOTBALL
 # ========================================================
-# Se añade 'ctx' como parámetro para poder enviar mensajes en caso de error
 async def obtener_clasificacion(ctx, league_id, league_name):
     url = "https://api-sports.io"
-
     
-    # Ajustado a la temporada activa en curso
+    # Ajustado a la temporada activa en curso (2026)
     querystring = {"league": league_id, "season": "2026"}
     
     headers = {
@@ -89,37 +87,50 @@ async def obtener_clasificacion(ctx, league_id, league_name):
     }
     
     try:
-        response = requests.get(url, headers=headers, params=querystring)
-        
-        if response.status_code == 200:
-            data = response.json()
-            
-            try:
-                standings_list = data["response"][0]["league"]["standings"]
+        # Usamos aiohttp de forma asíncrona para que Render no bloquee la conexión
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, params=querystring) as response:
                 
-                # Algunas copas/torneos cortos devuelven listas anidadas diferentes
-                if isinstance(standings_list[0], list):
-                    teams = standings_list[0]
-                else:
-                    teams = standings_list
-                
-                tabla = f"🏆 **Clasificación / Fase actual de {league_name}:**\n\n"
-                
-                # Muestra los primeros 5 equipos como tenías configurado
-                for team_data in teams[:5]:
-                    pos = team_data["rank"]
-                    name = team_data["team"]["name"]
-                    points = team_data["points"]
-                    tabla += f"**{pos}.** {name} — `{points} pts`\n"
+                if response.status == 200:
+                    data = await response.json()
                     
-                await ctx.send(tabla)
-                
-            except (KeyError, IndexError, TypeError):
-                await ctx.send(f"❌ No se encontraron datos para {league_name}. Asegúrate de que tu cuenta de API-Sports tenga acceso.")
-        else:
-            await ctx.send("❌ Error al conectar con los servidores de fútbol.")
-            
+                    try:
+                        # Estructura oficial de API-Football para la clasificación
+                        standings_data = data["response"][0]["league"]["standings"]
+                        
+                        # Algunas ligas devuelven una lista de listas (sub-grupos)
+                        if isinstance(standings_data, list) and len(standings_data) > 0:
+                            if isinstance(standings_data[0], list):
+                                teams = standings_data[0]
+                            else:
+                                teams = standings_data
+                        else:
+                            teams = []
+                        
+                        if not teams:
+                            await ctx.send(f"❌ No se encontraron datos de clasificación para {league_name} en la temporada 2026.")
+                            return
+
+                        tabla = f"🏆 **Clasificación / Fase actual de {league_name}:**\n\n"
+                        
+                        # Muestra los primeros 5 equipos
+                        for team_data in teams[:5]:
+                            pos = team_data["rank"]
+                            name = team_data["team"]["name"]
+                            points = team_data["points"]
+                            tabla += f"**{pos}.** {name} — `{points} pts`\n"
+                            
+                        await ctx.send(tabla)
+                        
+                    except (KeyError, IndexError, TypeError) as err:
+                        print(f"Error al procesar el JSON de la API: {err}")
+                        await ctx.send(f"❌ Estructura de datos no reconocida para {league_name}.")
+                else:
+                    print(f"Error de API HTTP Status: {response.status}")
+                    await ctx.send(f"❌ Error al conectar con los servidores de fútbol (Código HTTP {response.status}).")
+                    
     except Exception as e:
+        print(f"Error crítico inesperado en el comando: {e}")
         await ctx.send(f"❌ Ocurrió un error inesperado al procesar el comando.")
 
 
