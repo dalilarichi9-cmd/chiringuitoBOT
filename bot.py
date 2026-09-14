@@ -2,65 +2,78 @@ import os
 import discord
 from discord.ext import commands
 import requests
-from datetime import datetime
-from dotenv import load_dotenv
+from flask import Flask
+from threading import Thread
 
-# Cargar variables de entorno (en desarrollo local)
-load_dotenv()
+# 1. TRUCO PARA RENDER: Creamos un mini servidor web
+app = Flask('')
 
+@app.route('/')
+def home():
+    return "¡Bot activo 24/7!"
+
+def run_web_server():
+    # Render asigna automáticamente un puerto en la variable PORT
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run_web_server)
+    t.start()
+
+# 2. CONFIGURACIÓN DEL BOT DE DISCORD
 TOKEN = os.getenv("DISCORD_TOKEN")
-API_KEY = os.getenv("FOOTBALL_API_KEY")
+API_KEY = os.getenv("API_KEY")
 
-# Configurar el bot de Discord
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
 
 @bot.event
 async def on_ready():
-    print(f"Bot conectado como {bot.user}")
+    print(f"🤖 Conectado con éxito como {bot.user}")
 
-@bot.command(name="partidos")
-async def get_fixtures(ctx):
-    # Endpoint de API-Football para los partidos de hoy
+# Comando para LaLiga
+@bot.command(name="laliga")
+async def laliga(ctx):
+    await obtener_clasificacion(ctx, "140", "LaLiga EA Sports")
+
+# Comando para LaLiga Hypermotion (Segunda)
+@bot.command(name="hypermotion")
+async def hypermotion(ctx):
+    await obtener_clasificacion(ctx, "141", "LaLiga Hypermotion")
+
+# Comando para la Champions League
+@bot.command(name="champions")
+async def champions(ctx):
+    await obtener_clasificacion(ctx, "2", "UEFA Champions League")
+
+# Función interna que hace la llamada a la API
+async def obtener_clasificacion(ctx, league_id, league_name):
     url = "https://api-sports.io"
-    today = datetime.today().strftime('%Y-%m-%d')
-    
-    # Parámetros (ejemplo para la liga española, ID: 140. Puedes cambiarlo o quitarlo)
-    querystring = {"date": today, "league": "140", "season": "2026"}
+    # Año de la temporada actual
+    querystring = {"league": league_id, "season": "2026"}
     headers = {
-        'x-rapidapi-host': "v3.football.api-sports.io",
-        'x-rapidapi-key': API_KEY
+        "x-rapidapi-key": API_KEY,
+        "x-rapidapi-host": "v3.football.api-sports.io"
     }
     
-    try:
-        response = requests.get(url, headers=headers, params=querystring).json()
-        fixtures = response.get("response", [])
-        
-        if not fixtures:
-            await ctx.send("No hay partidos programados para hoy en esta liga.")
-            return
-            
-        mensaje = f"⚽ **Partidos de hoy ({today}):**\n"
-        for f in fixtures[:10]: # Limitar a 10 para no saturar el chat
-            home = f['teams']['home']['name']
-            away = f['teams']['away']['name']
-            status = f['fixture']['status']['short']
-            
-            # Si el partido está en vivo, muestra el resultado
-            if status in ["1H", "2H", "HT"]:
-                goals_home = f['goals']['home']
-                goals_away = f['goals']['away']
-                mensaje += f"🔴 {home} {goals_home} - {goals_away} {away} ({status})\n"
-            else:
-                hora = f['fixture']['date'].split("T")[1][:5]
-                mensaje += f"⏳ {home} vs {away} - {hora} UTC\n"
-                
-        await ctx.send(mensaje)
-        
-    except Exception as e:
-        await ctx.send("Hubo un error al conectar con la API de fútbol.")
-        print(e)
+    response = requests.get(url, headers=headers, params=querystring)
+    
+    if response.status_code == 200:
+        data = response.json()
+        try:
+            standings_list = data["response"][0]["league"]["standings"][0]
+            tabla = f"🏆 **Clasificación de {league_name}:**\n"
+            for team_data in standings_list[:5]:
+                pos = team_data["rank"]
+                name = team_data["team"]["name"]
+                points = team_data["points"]
+                tabla += f"{pos}. {name} - {points} pts\n"
+            await ctx.send(tabla)
+        except (KeyError, IndexError, TypeError):
+            await ctx.send(f"❌ No se encontraron datos. Asegúrate de tener tu API_KEY activa de API-Sports.")
+    else:
+        await ctx.send("❌ Error al conectar con los servidores de fútbol.")
 
+# Arrancamos el servidor web para Render y luego el bot
+keep_alive()
 bot.run(TOKEN)
-
