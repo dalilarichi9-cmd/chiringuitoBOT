@@ -78,12 +78,11 @@ async def obtener_clasificacion(ctx, league_id, league_name):
             standings_list = data["response"]["league"]["standings"]
             
             # Algunas copas/torneos cortos devuelven listas anidadas diferentes, validamos la estructura
-            if isinstance(standings_list[0], list):
+    if isinstance(standings_list[0], list):
+        teams = standings_list[0]
+    else:
+        teams = standings_list
 
-            if isinstance(standings_list[0], list):
-    teams = standings_list[0]
-else:
-    teams = standings_list
 
 
                 
