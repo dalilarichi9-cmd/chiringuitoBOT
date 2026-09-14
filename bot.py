@@ -78,6 +78,7 @@ async def supercopa(ctx):
 # Se añade 'ctx' como parámetro para poder enviar mensajes en caso de error
 async def obtener_clasificacion(ctx, league_id, league_name):
     url = "https://api-sports.io"
+
     
     # Ajustado a la temporada activa en curso
     querystring = {"league": league_id, "season": "2026"}
